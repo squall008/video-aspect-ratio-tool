@@ -675,6 +675,7 @@ async function exportMp4({ oW, oH, sX, sY, sW, sH, dX, dY, dW, dH, base, canvas,
     target: new ArrayBufferTarget(),
     video: { codec:'avc', width:oW, height:oH, frameRate:FPS },
     audio: { codec:'aac', sampleRate:SAMPLE_RATE, numberOfChannels:CHANNELS },
+    firstTimestampBehavior: 'offset',
     fastStart: 'in-memory',
   });
 
@@ -724,12 +725,12 @@ async function exportMp4({ oW, oH, sX, sY, sW, sH, dX, dY, dW, dH, base, canvas,
 
           // Request the next frame callback before seeking
           elPv.requestVideoFrameCallback(async (now, metadata) => {
+            let vf = null;
             try {
               drawFrame(ctx, oW, oH, sX, sY, sW, sH, dX, dY, dW, dH, blurCanvas, blurCtx);
               const ts = Math.round(metadata.mediaTime * 1_000_000);
-              const vf = new VideoFrame(canvas, { timestamp: ts, duration: Math.round(1_000_000 / FPS) });
+              vf = new VideoFrame(canvas, { timestamp: ts, duration: Math.round(1_000_000 / FPS) });
               videoEnc.encode(vf, { keyFrame: frameIdx++ % (FPS * 2) === 0 });
-              vf.close();
 
               const pct = Math.min(100, Math.round(metadata.mediaTime / duration * 100));
               if (pct !== lastPct) {
@@ -740,7 +741,11 @@ async function exportMp4({ oW, oH, sX, sY, sW, sH, dX, dY, dW, dH, base, canvas,
 
               // Move to next frame
               elPv.currentTime = Math.min(duration, elPv.currentTime + frameDuration);
-            } catch (e) { reject(e); }
+            } catch (e) { 
+              reject(e); 
+            } finally {
+              if (vf) vf.close();
+            }
           });
 
           // If we are at the very beginning and haven't triggered a seeked event yet, 
