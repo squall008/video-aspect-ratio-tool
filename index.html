@@ -258,6 +258,7 @@ const RATIOS = [
   {label:'1:1',  name:'スクエア',      w:1, h:1,  vw:28,vh:28},
   {label:'21:9', name:'シネマ',        w:21,h:9,  vw:44,vh:18},
   {label:'3:4',  name:'ポートフォリオ',w:3, h:4,  vw:24,vh:32},
+  {label:'Free', name:'カスタム',      w:0, h:0,  vw:28,vh:28},
 ];
 const FPS           = 30;
 const SAMPLE_RATE   = 44100;
@@ -444,14 +445,19 @@ function updateGuide() {
 
   // Initialize / reset cropState when layout changes
   if (!cropState || cropState.vw !== vw || cropState.vh !== vh) {
-    const tAR = sel.w / sel.h;
+    const tAR = sel.w > 0 ? sel.w / sel.h : vAR; 
     const vAR = vMeta.w / vMeta.h;
     let cW, cH;
-    // Clamp to display bounds to prevent float precision overflow (e.g. vh*tAR > vw)
-    if (fill === 'crop') {
+    if (sel.w === 0) {
+      // Freeform: Start with a sensible default like 1:1 clamped to video
+      const size = Math.min(vw, vh) * 0.8;
+      cW = size; cH = size;
+    } else if (fill === 'crop') {
+      const tAR = sel.w / sel.h;
       cW = tAR > vAR ? vw                      : Math.min(vh * tAR, vw);
       cH = tAR > vAR ? Math.min(vw / tAR, vh) : vh;
     } else {
+      const tAR = sel.w / sel.h;
       cW = tAR > vAR ? Math.min(vh * tAR, vw) : vw;
       cH = tAR > vAR ? vh                      : Math.min(vw / tAR, vh);
     }
@@ -500,16 +506,30 @@ function applyDrag(clientX, clientY) {
     cropState.cx = Math.min(vx+vw-s.cW/2, Math.max(vx+s.cW/2, s.cx+dx));
     cropState.cy = Math.min(vy+vh-s.cH/2, Math.max(vy+s.cH/2, s.cy+dy));
   } else {
-    const AR = sel.w / sel.h;
-    const delta =
-      (dir==='e'||dir==='ne'||dir==='se') ?  dx :
-      (dir==='w'||dir==='nw'||dir==='sw') ? -dx :
-      dir === 's'                          ?  dy : -dy;
+    const isFree = sel.w === 0;
+    const AR = isFree ? (s.cW / s.cH) : (sel.w / sel.h);
 
-    let nW = Math.min(vw, Math.max(vw * 0.1, s.cW + delta));
-    let nH = nW / AR;
-    if (nH > vh)      { nH = vh;      nW = nH * AR; }
-    if (nH < vh*0.1)  { nH = vh*0.1;  nW = nH * AR; }
+    let nW, nH;
+    if (isFree) {
+      // Freeform: adjust w and h independently based on handle
+      const dx_signed = (dir.includes('w')) ? -dx : dx;
+      const dy_signed = (dir.includes('n')) ? -dy : dy;
+      
+      nW = s.cW; nH = s.cH;
+      if (dir.includes('e') || dir.includes('w')) nW = Math.min(vw, Math.max(vw * 0.05, s.cW + dx_signed));
+      if (dir.includes('n') || dir.includes('s')) nH = Math.min(vh, Math.max(vh * 0.05, s.cH + dy_signed));
+    } else {
+      // Proportional: adjust based on delta and fixed AR
+      const delta =
+        (dir==='e'||dir==='ne'||dir==='se') ?  dx :
+        (dir==='w'||dir==='nw'||dir==='sw') ? -dx :
+        dir === 's'                          ?  dy : -dy;
+
+      nW = Math.min(vw, Math.max(vw * 0.1, s.cW + delta));
+      nH = nW / AR;
+      if (nH > vh)      { nH = vh;      nW = nH * AR; }
+      if (nH < vh*0.1)  { nH = vh*0.1;  nW = nH * AR; }
+    }
 
     cropState.cW = nW;
     cropState.cH = nH;
@@ -584,7 +604,7 @@ function drawFrame(ctx, oW, oH, sX, sY, sW, sH, dX, dY, dW, dH, blurCanvas, blur
 //          dX/dY/dW/dH = destination rect for video drawing (PAD)
 // ─────────────────────────────────────────────
 function calcExportDims() {
-  const tAR = sel.w / sel.h;
+  const tAR = sel.w > 0 ? (sel.w / sel.h) : (cropState ? cropState.cW / cropState.cH : vMeta.w / vMeta.h);
   const vAR = vMeta.w / vMeta.h;
   let oW, oH, sX = 0, sY = 0, sW, sH, dX = 0, dY = 0, dW, dH;
 
@@ -715,49 +735,60 @@ async function exportMp4({ oW, oH, sX, sY, sW, sH, dX, dY, dW, dH, base, canvas,
 
     await new Promise((resolve, reject) => {
       encReject = reject;
-      
-      async function processNextFrame() {
+      let isProcessing = false;
+
+      const onSeeked = async () => {
+        if (isProcessing) return;
+        isProcessing = true;
         try {
           if (elPv.currentTime >= duration - (frameDuration / 2)) {
+            elPv.removeEventListener('seeked', onSeeked);
             resolve();
             return;
           }
 
-          // Request the next frame callback before seeking
-          elPv.requestVideoFrameCallback(async (now, metadata) => {
+          // requestVideoFrameCallback is ideal, but we need a fallback for some environments
+          const captureFrame = async (metadata) => {
             let vf = null;
             try {
               drawFrame(ctx, oW, oH, sX, sY, sW, sH, dX, dY, dW, dH, blurCanvas, blurCtx);
-              const ts = Math.round(metadata.mediaTime * 1_000_000);
+              const ts = Math.round((metadata?.mediaTime ?? elPv.currentTime) * 1_000_000);
               vf = new VideoFrame(canvas, { timestamp: ts, duration: Math.round(1_000_000 / FPS) });
               videoEnc.encode(vf, { keyFrame: frameIdx++ % (FPS * 2) === 0 });
 
-              const pct = Math.min(100, Math.round(metadata.mediaTime / duration * 100));
+              const pct = Math.min(100, Math.round((metadata?.mediaTime ?? elPv.currentTime) / duration * 100));
               if (pct !== lastPct) {
                 lastPct = pct;
                 elPb.style.width = pct + '%';
                 elPt.textContent = `処理中... ${pct}%`;
               }
 
-              // Move to next frame
+              isProcessing = false;
               elPv.currentTime = Math.min(duration, elPv.currentTime + frameDuration);
             } catch (e) { 
               reject(e); 
             } finally {
               if (vf) vf.close();
             }
-          });
+          };
 
-          // If we are at the very beginning and haven't triggered a seeked event yet, 
-          // we might need to manually trigger the first frame or wait for the first rvfc.
-          // Since we seeking in the loop, wait for 'seeked' event.
+          if (elPv.requestVideoFrameCallback) {
+            elPv.requestVideoFrameCallback((now, metadata) => captureFrame(metadata));
+          } else {
+            // Fallback for environments where rvfc isn't working/available
+            setTimeout(() => captureFrame(), 40); 
+          }
         } catch (e) { reject(e); }
-      }
+      };
 
-      elPv.addEventListener('seeked', processNextFrame, { signal: audioCtx.signal });
+      elPv.addEventListener('seeked', onSeeked, { signal: audioCtx.signal });
       
-      // Kick off the first frame
-      elPv.currentTime = 0;
+      // Kick off: if we're already at 0, seeked won't fire on some browsers
+      if (elPv.currentTime === 0) {
+        onSeeked();
+      } else {
+        elPv.currentTime = 0;
+      }
     });
 
     await videoEnc.flush();
