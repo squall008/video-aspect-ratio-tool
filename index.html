@@ -1,0 +1,1046 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RATIO — Video Aspect Ratio Tool</title>
+<script src="https://cdn.jsdelivr.net/npm/mp4-muxer@4/build/mp4-muxer.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans+JP:wght@300;400;500&display=swap');
+
+  :root {
+    --bg:#0a0a0a; --surface:#111; --surface2:#1a1a1a; --border:#2a2a2a;
+    --accent:#e8ff3a; --text:#e8e8e0; --text-dim:#666; --radius:2px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'IBM Plex Sans JP',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column}
+
+  #iframe-warning{display:none;background:#1a1200;border-bottom:2px solid #e8a000;padding:16px 24px;align-items:flex-start;gap:14px;flex-wrap:wrap}
+  #iframe-warning .wi{font-size:22px;flex-shrink:0;margin-top:2px}
+  #iframe-warning .wt{font-size:13px;line-height:1.8;color:#e8c840;flex:1;min-width:220px}
+  #iframe-warning .wt strong{color:#fff;font-size:14px}
+  #iframe-warning .wt ol{margin:6px 0 0 18px;color:#ccc}
+  #iframe-warning .wt ol li{margin-bottom:2px}
+  #iframe-warning .dl{background:#e8a000;color:#000;border:none;padding:10px 20px;font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:700;letter-spacing:.08em;cursor:pointer;border-radius:2px;white-space:nowrap;text-decoration:none;display:inline-flex;align-items:center;gap:6px;margin-top:4px}
+  #iframe-warning .dl:hover{background:#ffb800}
+
+  header{padding:18px 28px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)}
+  .logo{font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:20px;letter-spacing:.1em;color:var(--accent)}
+  .logo span{color:var(--text-dim);font-weight:300;font-size:12px;margin-left:10px}
+  .status-bar{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text-dim)}
+  .sd{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--text-dim);margin-right:7px;vertical-align:middle}
+  .sd.on{background:var(--accent);box-shadow:0 0 8px var(--accent)}
+
+  main{flex:1;display:grid;grid-template-columns:1fr 300px;gap:20px;padding:24px;max-width:1280px;width:100%;margin:0 auto}
+
+  .upload-zone{border:1px dashed var(--border);border-radius:var(--radius);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 40px;cursor:pointer;transition:border-color .2s,background .2s;min-height:340px;position:relative;overflow:hidden}
+  .upload-zone::before{content:'';position:absolute;inset:0;background:repeating-linear-gradient(-45deg,transparent,transparent 20px,rgba(255,255,255,.012) 20px,rgba(255,255,255,.012) 40px)}
+  .upload-zone:hover,.upload-zone.drag-over{border-color:var(--accent);background:rgba(232,255,58,.025)}
+  .upload-zone svg{width:52px;height:52px;margin-bottom:16px;opacity:.35}
+  .upload-zone .t{font-family:'IBM Plex Mono',monospace;font-size:13px;letter-spacing:.08em;margin-bottom:5px}
+  .upload-zone .s{font-size:12px;color:var(--text-dim)}
+
+  .preview-area{display:none;flex-direction:column;gap:12px}
+  .preview-area.visible{display:flex}
+  .video-container{position:relative;background:#000;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;display:flex;align-items:center;justify-content:center;min-height:300px}
+  .video-container video{max-width:100%;max-height:440px;display:block}
+  .cg{position:absolute;inset:0;pointer-events:none}
+  .cm{position:absolute;background:rgba(0,0,0,.62);pointer-events:none}
+  .cb{position:absolute;border:2px solid var(--accent);cursor:move;pointer-events:all}
+  .rh{position:absolute;width:12px;height:12px;background:var(--accent);border:1px solid #000;border-radius:1px;z-index:10;pointer-events:all}
+  .rh.nw{top:-6px;left:-6px;cursor:nw-resize}
+  .rh.n {top:-6px;left:50%;transform:translateX(-50%);cursor:n-resize}
+  .rh.ne{top:-6px;right:-6px;cursor:ne-resize}
+  .rh.e {top:50%;right:-6px;transform:translateY(-50%);cursor:e-resize}
+  .rh.se{bottom:-6px;right:-6px;cursor:se-resize}
+  .rh.s {bottom:-6px;left:50%;transform:translateX(-50%);cursor:s-resize}
+  .rh.sw{bottom:-6px;left:-6px;cursor:sw-resize}
+  .rh.w {top:50%;left:-6px;transform:translateY(-50%);cursor:w-resize}
+  .crop-hint{position:absolute;bottom:-22px;left:50%;transform:translateX(-50%);font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--accent);white-space:nowrap;pointer-events:none;opacity:0;transition:opacity .2s}
+  .cb:hover .crop-hint,.cb.dragging .crop-hint{opacity:1}
+
+  .info-bar{display:flex;gap:14px;flex-wrap:wrap;padding:9px 12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text-dim)}
+  .info-bar strong{color:var(--text)}
+
+  .sidebar{display:flex;flex-direction:column;gap:14px}
+  .panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+  .ph{padding:9px 14px;background:var(--surface2);border-bottom:1px solid var(--border);font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.12em;color:var(--text-dim);text-transform:uppercase}
+  .pb{padding:14px}
+
+  .rg{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+  .rb{border:1px solid var(--border);background:transparent;color:var(--text);cursor:pointer;padding:9px 6px;border-radius:var(--radius);display:flex;flex-direction:column;align-items:center;gap:5px;transition:all .15s;font-family:'IBM Plex Mono',monospace}
+  .rb:hover,.rb.active{border-color:var(--accent);color:var(--accent)}
+  .rb.active{background:rgba(232,255,58,.08)}
+  .rv{background:var(--border);transition:background .15s}
+  .rb:hover .rv,.rb.active .rv{background:var(--accent)}
+  .rl{font-size:11px;font-weight:500;letter-spacing:.05em}
+  .rn{font-size:9px;color:var(--text-dim)}
+  .rb.active .rn{color:var(--accent);opacity:.7}
+
+  .fill-modes{display:flex;gap:7px}
+  .fb{flex:1;padding:8px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.06em;cursor:pointer;border-radius:var(--radius);transition:all .15s;text-transform:uppercase}
+  .fb:hover,.fb.active{border-color:var(--accent);color:var(--accent)}
+  .fb.active{background:rgba(232,255,58,.08)}
+  .bg-control{display:flex;align-items:center;gap:10px;margin-top:8px;padding-top:8px;border-top:1px solid var(--border)}
+  .bg-label{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text-dim);flex:1}
+  .swatches{display:flex;gap:5px}
+  .swatch{width:20px;height:20px;border-radius:2px;cursor:pointer;border:2px solid transparent;transition:border-color .15s}
+  .swatch.active{border-color:var(--accent)}
+
+  .exp-btn{width:100%;padding:13px;background:var(--accent);color:#000;border:none;cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;border-radius:var(--radius);transition:all .15s;display:flex;align-items:center;justify-content:center;gap:7px}
+  .exp-btn:hover:not(:disabled){background:#f5ff66;transform:translateY(-1px)}
+  .exp-btn:disabled{background:var(--border);color:var(--text-dim);cursor:not-allowed}
+  .pw{display:none;flex-direction:column;gap:7px}
+  .pw.visible{display:flex}
+  .pbo{height:3px;background:var(--border);border-radius:99px;overflow:hidden}
+  .pbi{height:100%;background:var(--accent);width:0%;transition:width .2s}
+  .pt{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text-dim)}
+  .dl-link{display:none;width:100%;padding:11px;background:transparent;color:var(--accent);border:1px solid var(--accent);cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;border-radius:var(--radius);text-decoration:none;text-align:center;transition:all .15s}
+  .dl-link.visible{display:block}
+  .dl-link:hover{background:rgba(232,255,58,.08)}
+
+  /* ── Preview Modal ── */
+  #previewModal{display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.88);align-items:center;justify-content:center;padding:20px}
+  #previewModal.open{display:flex}
+  .pvm-inner{position:relative;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);display:flex;flex-direction:column;max-width:min(860px,95vw);width:100%}
+  .pvm-header{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:var(--surface2);border-bottom:1px solid var(--border)}
+  .pvm-title{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.1em;color:var(--text-dim);text-transform:uppercase}
+  .pvm-close{background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:18px;line-height:1;padding:2px 6px;border-radius:var(--radius);transition:color .15s}
+  .pvm-close:hover{color:var(--text)}
+  .pvm-canvas-wrap{background:#000;display:flex;align-items:center;justify-content:center;overflow:hidden}
+  #previewCanvas{display:block;max-width:100%;max-height:calc(90vh - 140px)}
+  .pvm-controls{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--surface2);border-top:1px solid var(--border)}
+  .pvm-play{background:var(--accent);color:#000;border:none;border-radius:var(--radius);width:32px;height:32px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:background .15s}
+  .pvm-play:hover{background:#f5ff66}
+  .pvm-play svg{width:13px;height:13px}
+  .pvm-seek{flex:1;-webkit-appearance:none;appearance:none;height:3px;background:var(--border);border-radius:99px;outline:none;cursor:pointer}
+  .pvm-seek::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;border-radius:50%;background:var(--accent);cursor:pointer;transition:transform .1s}
+  .pvm-seek::-webkit-slider-thumb:hover{transform:scale(1.3)}
+  .pvm-seek::-moz-range-thumb{width:13px;height:13px;border-radius:50%;background:var(--accent);border:none;cursor:pointer}
+  .pvm-time{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text-dim);white-space:nowrap;min-width:72px;text-align:right}
+  /* Preview button in sidebar */
+  .prev-btn{width:100%;padding:10px;background:transparent;color:var(--text);border:1px solid var(--border);cursor:pointer;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;border-radius:var(--radius);transition:all .15s;display:flex;align-items:center;justify-content:center;gap:6px}
+  .prev-btn:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
+  .prev-btn:disabled{color:var(--text-dim);cursor:not-allowed}
+
+  #fileInput,#processingCanvas{display:none}
+  @media(max-width:860px){main{grid-template-columns:1fr;padding:14px}}
+</style>
+</head>
+<body>
+
+<div id="iframe-warning">
+  <span class="wi">⚠️</span>
+  <div class="wt">
+    <strong>このツールはiframe内（Claude.ai）では動画を再生できません。</strong><br>
+    以下の手順でご利用ください：
+    <ol>
+      <li>下のボタンでHTMLファイルをダウンロード</li>
+      <li>ダウンロードしたファイルをChromeで開く</li>
+      <li>動画をアップロードして使用</li>
+    </ol>
+  </div>
+  <a class="dl" id="selfDl" href="#">⬇ HTMLをダウンロード</a>
+</div>
+
+<header>
+  <div class="logo">RATIO<span>/ Video Aspect Ratio Tool</span></div>
+  <div class="status-bar"><span class="sd" id="sd"></span><span id="st">動画をアップロードしてください</span></div>
+</header>
+
+<main>
+  <div>
+    <label class="upload-zone" id="uploadZone" for="fileInput">
+      <svg viewBox="0 0 64 64" fill="none"><rect x="4" y="10" width="56" height="40" rx="3" stroke="#666" stroke-width="2"/><path d="M26 24L38 32L26 40V24Z" fill="#666"/><path d="M32 50V58M24 58H40" stroke="#666" stroke-width="2" stroke-linecap="round"/></svg>
+      <div class="t">動画ファイルをドロップ</div>
+      <div class="s">または クリックして選択 • MP4 / MOV / WebM</div>
+    </label>
+
+    <div class="preview-area" id="previewArea">
+      <div class="video-container" id="vc">
+        <video id="pv" controls></video>
+        <div class="cg">
+          <div class="cm" id="mT"></div><div class="cm" id="mB"></div>
+          <div class="cm" id="mL"></div><div class="cm" id="mR"></div>
+          <div class="cb" id="cb">
+            <div class="rh nw" data-dir="nw"></div>
+            <div class="rh n"  data-dir="n"></div>
+            <div class="rh ne" data-dir="ne"></div>
+            <div class="rh e"  data-dir="e"></div>
+            <div class="rh se" data-dir="se"></div>
+            <div class="rh s"  data-dir="s"></div>
+            <div class="rh sw" data-dir="sw"></div>
+            <div class="rh w"  data-dir="w"></div>
+            <div class="crop-hint" id="cropHint"></div>
+          </div>
+        </div>
+      </div>
+      <div class="info-bar">
+        FILE:<strong id="iN">—</strong> &nbsp;
+        SIZE:<strong id="iS">—</strong> &nbsp;
+        RES:<strong id="iR">—</strong> &nbsp;
+        DUR:<strong id="iD">—</strong>
+      </div>
+    </div>
+  </div>
+
+  <div class="sidebar">
+    <div class="panel"><div class="ph">アスペクト比</div><div class="pb"><div class="rg" id="rg"></div></div></div>
+    <div class="panel">
+      <div class="ph">フィルモード</div>
+      <div class="pb">
+        <div class="fill-modes">
+          <button class="fb active" data-mode="crop">CROP</button>
+          <button class="fb" data-mode="pad">PAD</button>
+        </div>
+        <div class="bg-control" id="bgCtrl" style="display:none">
+          <span class="bg-label">背景色</span>
+          <div class="swatches">
+            <div class="swatch active" data-color="#000" style="background:#000"></div>
+            <div class="swatch" data-color="#fff" style="background:#fff"></div>
+            <div class="swatch" data-color="#808080" style="background:#808080"></div>
+            <div class="swatch" data-color="blur" style="background:linear-gradient(135deg,#f00,#0f0,#00f)" title="ぼかし"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="ph">エクスポート</div>
+      <div class="pb" style="display:flex;flex-direction:column;gap:9px">
+        <button class="prev-btn" id="prevBtn" disabled>
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><circle cx="6.5" cy="6.5" r="5.5" stroke="currentColor" stroke-width="1.5"/><path d="M5.5 4.5l3.5 2-3.5 2V4.5Z" fill="currentColor"/></svg>
+          プレビュー
+        </button>
+        <button class="exp-btn" id="expBtn" disabled>
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M6.5 1v7M4 5.5l2.5 2.5L9 5.5M1.5 10.5h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          変換してダウンロード
+        </button>
+        <div class="pw" id="pw"><div class="pbo"><div class="pbi" id="pb"></div></div><div class="pt" id="pt">処理中... 0%</div></div>
+        <a class="dl-link" id="dlLink" href="#" download="output.webm">⬇ ダウンロード</a>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- Preview Modal -->
+<div id="previewModal">
+  <div class="pvm-inner">
+    <div class="pvm-header">
+      <span class="pvm-title">OUTPUT PREVIEW</span>
+      <button class="pvm-close" id="pvmClose">✕</button>
+    </div>
+    <div class="pvm-canvas-wrap" id="pvmWrap">
+      <canvas id="previewCanvas"></canvas>
+    </div>
+    <div class="pvm-controls">
+      <button class="pvm-play" id="pvmPlay">
+        <svg viewBox="0 0 13 13" fill="none"><path id="pvmPlayIcon" d="M3.5 2.5l7 4-7 4V2.5Z" fill="currentColor"/></svg>
+      </button>
+      <input class="pvm-seek" id="pvmSeek" type="range" min="0" max="1000" value="0" step="1">
+      <span class="pvm-time" id="pvmTime">0:00 / 0:00</span>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="fileInput" accept="video/*">
+<canvas id="processingCanvas"></canvas>
+
+<script>
+'use strict';
+
+// ─────────────────────────────────────────────
+// Constants
+// ─────────────────────────────────────────────
+const RATIOS = [
+  {label:'16:9', name:'ワイド',        w:16,h:9,  vw:40,vh:22},
+  {label:'9:16', name:'ポートレート',  w:9, h:16, vw:22,vh:40},
+  {label:'4:3',  name:'スタンダード',  w:4, h:3,  vw:32,vh:24},
+  {label:'1:1',  name:'スクエア',      w:1, h:1,  vw:28,vh:28},
+  {label:'21:9', name:'シネマ',        w:21,h:9,  vw:44,vh:18},
+  {label:'3:4',  name:'ポートフォリオ',w:3, h:4,  vw:24,vh:32},
+];
+const FPS           = 30;
+const SAMPLE_RATE   = 44100;
+const CHANNELS      = 2;
+const VIDEO_BITRATE = 8_000_000;
+const VALID_EXTS    = new Set(['mp4','mov','webm','avi','mkv','m4v','ogv']);
+
+// ─────────────────────────────────────────────
+// Mutable state
+// ─────────────────────────────────────────────
+let sel       = RATIOS[0];  // selected aspect ratio
+let fill      = 'crop';     // 'crop' | 'pad'
+let bgCol     = '#000';     // pad background color
+let vFile     = null;       // File object
+let vMeta     = { w:0, h:0, dur:0, ready:false };
+let cropState = null;       // { cx,cy,cW,cH, vx,vy,vw,vh, baseCW,baseCH }
+let _pvUrl    = null;       // active blob URL for preview <video>
+let _ac       = null;       // AbortController for video-load listeners
+let dragging  = null;       // { dir, startX, startY, snap }
+
+// ─────────────────────────────────────────────
+// Cached DOM references (queried once at startup)
+// ─────────────────────────────────────────────
+const elPv      = document.getElementById('pv');
+const elUz      = document.getElementById('uploadZone');
+const elVc      = document.getElementById('vc');
+const elCb      = document.getElementById('cb');
+const elHint    = document.getElementById('cropHint');
+const elMasks   = ['mT','mB','mL','mR'].map(id => document.getElementById(id));
+const elSd      = document.getElementById('sd');
+const elSt      = document.getElementById('st');
+const elExpBtn  = document.getElementById('expBtn');
+const elPw      = document.getElementById('pw');
+const elPb      = document.getElementById('pb');
+const elPt      = document.getElementById('pt');
+const elDlLink  = document.getElementById('dlLink');
+const elCanvas    = document.getElementById('processingCanvas');
+const elBgCtrl   = document.getElementById('bgCtrl');
+const elPrevArea = document.getElementById('previewArea');
+const elInfoN    = document.getElementById('iN');
+const elInfoS    = document.getElementById('iS');
+const elInfoR    = document.getElementById('iR');
+const elInfoD    = document.getElementById('iD');
+// Preview Modal DOM refs (grouped with other cached refs)
+const elPrevBtn   = document.getElementById('prevBtn');
+const elModal     = document.getElementById('previewModal');
+const elPvmClose  = document.getElementById('pvmClose');
+const elPvmPlay   = document.getElementById('pvmPlay');
+const elPvmIcon   = document.getElementById('pvmPlayIcon');
+const elPvmSeek   = document.getElementById('pvmSeek');
+const elPvmTime   = document.getElementById('pvmTime');
+const elPrevCanvas= document.getElementById('previewCanvas');
+const elPvmWrap   = document.getElementById('pvmWrap');
+// ratio buttons NodeList — populated after RATIOS.forEach
+let   rbNodes   = null;
+
+// ─────────────────────────────────────────────
+// Iframe detection
+// ─────────────────────────────────────────────
+try {
+  if (window.self !== window.top) {
+    document.getElementById('iframe-warning').style.display = 'flex';
+    fetch(window.location.href)
+      .then(r => r.blob())
+      .then(b => { document.getElementById('selfDl').href = URL.createObjectURL(b); })
+      .catch(() => { document.getElementById('selfDl').href = window.location.href; });
+  }
+} catch (_) {
+  document.getElementById('iframe-warning').style.display = 'flex';
+}
+
+// ─────────────────────────────────────────────
+// Ratio buttons
+// ─────────────────────────────────────────────
+const rgEl = document.getElementById('rg');
+RATIOS.forEach((r, i) => {
+  const b = document.createElement('button');
+  b.className = 'rb' + (i === 0 ? ' active' : '');
+  b.innerHTML = `<div class="rv" style="width:${r.vw}px;height:${r.vh}px;border-radius:1px"></div>`
+              + `<div class="rl">${r.label}</div><div class="rn">${r.name}</div>`;
+  b.onclick = () => {
+    sel = r;
+    // Use cached NodeList after first build
+    rbNodes.forEach((x, j) => x.classList.toggle('active', j === i));
+    cropState = null;
+    updateGuide();
+    refreshPreviewDims();
+  };
+  rgEl.appendChild(b);
+});
+rbNodes = Array.from(rgEl.children); // cache after all buttons are appended
+
+// ─────────────────────────────────────────────
+// Fill mode & background
+// ─────────────────────────────────────────────
+const fbNodes = Array.from(document.querySelectorAll('.fb'));
+fbNodes.forEach(b => {
+  b.onclick = () => {
+    fill = b.dataset.mode;
+    fbNodes.forEach(x => x.classList.toggle('active', x === b));
+    elBgCtrl.style.display = fill === 'pad' ? 'flex' : 'none';
+    cropState = null;
+    updateGuide();
+    refreshPreviewDims();
+  };
+});
+
+const swatchNodes = Array.from(document.querySelectorAll('.swatch'));
+swatchNodes.forEach(s => {
+  s.onclick = () => {
+    swatchNodes.forEach(x => x.classList.remove('active'));
+    s.classList.add('active');
+    bgCol = s.dataset.color;
+    refreshPreviewDims();
+  };
+});
+
+// ─────────────────────────────────────────────
+// File upload
+// ─────────────────────────────────────────────
+document.getElementById('fileInput').onchange = e => loadVideo(e.target.files[0]);
+elUz.addEventListener('dragover',  e => { e.preventDefault(); elUz.classList.add('drag-over'); });
+elUz.addEventListener('dragleave', () => elUz.classList.remove('drag-over'));
+elUz.addEventListener('drop',      e => { e.preventDefault(); elUz.classList.remove('drag-over'); loadVideo(e.dataTransfer.files[0]); });
+
+function loadVideo(file) {
+  if (!file) return;
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (!file.type.startsWith('video/') && !VALID_EXTS.has(ext)) {
+    setStatus('', '動画ファイルを選択してください'); return;
+  }
+
+  vFile = file;
+  vMeta.ready = false;
+  setStatus('on', '読み込み中...');
+
+  if (_ac) _ac.abort();
+  _ac = new AbortController();
+  if (_pvUrl) { URL.revokeObjectURL(_pvUrl); _pvUrl = null; }
+
+  _pvUrl = URL.createObjectURL(file);
+  const sig = { signal: _ac.signal };
+  elPv.addEventListener('loadedmetadata', onReady, sig);
+  elPv.addEventListener('canplay',        onReady, sig);
+  elPv.addEventListener('error',          onErr,   sig);
+  elPv.src = _pvUrl;
+
+  function onReady() {
+    if (vMeta.ready || !elPv.videoWidth) return;
+    vMeta.ready = true;
+    _ac.abort();
+    vMeta.w   = elPv.videoWidth;
+    vMeta.h   = elPv.videoHeight;
+    vMeta.dur = elPv.duration || 0;
+    elInfoN.textContent = file.name.length > 22 ? file.name.slice(0, 22) + '…' : file.name;
+    elInfoS.textContent = fmtSize(file.size);
+    elInfoR.textContent = `${vMeta.w}×${vMeta.h}`;
+    elInfoD.textContent = fmtDur(vMeta.dur);
+    elUz.style.display = 'none';
+    elPrevArea.classList.add('visible');
+    elExpBtn.disabled = false;
+    elPrevBtn.disabled = false;
+    setStatus('on', `✓ ${file.name}`);
+    setTimeout(updateGuide, 120);
+  }
+
+  function onErr() {
+    const code = elPv.error?.code;
+    setStatus('', code === 4
+      ? '⚠ このファイルを再生できません。HTMLをダウンロードしてChromeで直接開いてください。'
+      : `⚠ 再生エラー (code:${code || '?'})`
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+// Crop guide
+// ─────────────────────────────────────────────
+function updateGuide() {
+  if (!vMeta.w) return;
+  const vw = elPv.clientWidth, vh = elPv.clientHeight;
+  const vx = (elVc.clientWidth  - vw) / 2;
+  const vy = (elVc.clientHeight - vh) / 2;
+
+  // Initialize / reset cropState when layout changes
+  if (!cropState || cropState.vw !== vw || cropState.vh !== vh) {
+    const tAR = sel.w / sel.h;
+    const vAR = vMeta.w / vMeta.h;
+    let cW, cH;
+    // Clamp to display bounds to prevent float precision overflow (e.g. vh*tAR > vw)
+    if (fill === 'crop') {
+      cW = tAR > vAR ? vw                      : Math.min(vh * tAR, vw);
+      cH = tAR > vAR ? Math.min(vw / tAR, vh) : vh;
+    } else {
+      cW = tAR > vAR ? Math.min(vh * tAR, vw) : vw;
+      cH = tAR > vAR ? vh                      : Math.min(vw / tAR, vh);
+    }
+    cropState = { cx: vx + vw/2, cy: vy + vh/2, cW, cH, vx, vy, vw, vh, baseCW: cW, baseCH: cH };
+  }
+
+  const { cx, cy, cW, cH } = cropState;
+  const l = cx - cW/2, t = cy - cH/2;
+
+  // Update mask panels (cached elements, no getElementById)
+  if (fill === 'crop') {
+    elMasks[0].style.cssText = `top:${vy}px;left:${vx}px;width:${vw}px;height:${t-vy}px`;
+    elMasks[1].style.cssText = `top:${t+cH}px;left:${vx}px;width:${vw}px;height:${vy+vh-t-cH}px`;
+    elMasks[2].style.cssText = `top:${t}px;left:${vx}px;width:${l-vx}px;height:${cH}px`;
+    elMasks[3].style.cssText = `top:${t}px;left:${l+cW}px;width:${vx+vw-l-cW}px;height:${cH}px`;
+  } else {
+    elMasks.forEach(m => { m.style.cssText = ''; });
+  }
+  elCb.style.cssText = `top:${t}px;left:${l}px;width:${cW}px;height:${cH}px`;
+
+  const pxW = Math.round(cW / vw * vMeta.w);
+  const pxH = Math.round(cH / vh * vMeta.h);
+  elHint.textContent = `${pxW}×${pxH} (${Math.round(cW / cropState.baseCW * 100)}%)`;
+}
+window.addEventListener('resize', () => { cropState = null; updateGuide(); });
+
+// ─────────────────────────────────────────────
+// Drag & resize
+// ─────────────────────────────────────────────
+function startDrag(dir, startX, startY) {
+  if (!cropState) return;
+  document.body.style.userSelect = 'none';
+  dragging = { dir, startX, startY, snap: { ...cropState } };
+  elCb.classList.add('dragging');
+}
+
+function applyDrag(clientX, clientY) {
+  if (!dragging || !cropState) return;
+  const dx  = clientX - dragging.startX;
+  const dy  = clientY - dragging.startY;
+  const s   = dragging.snap;
+  const dir = dragging.dir;
+  const { vx, vy, vw, vh } = s;
+
+  if (dir === 'move') {
+    cropState.cx = Math.min(vx+vw-s.cW/2, Math.max(vx+s.cW/2, s.cx+dx));
+    cropState.cy = Math.min(vy+vh-s.cH/2, Math.max(vy+s.cH/2, s.cy+dy));
+  } else {
+    const AR = sel.w / sel.h;
+    const delta =
+      (dir==='e'||dir==='ne'||dir==='se') ?  dx :
+      (dir==='w'||dir==='nw'||dir==='sw') ? -dx :
+      dir === 's'                          ?  dy : -dy;
+
+    let nW = Math.min(vw, Math.max(vw * 0.1, s.cW + delta));
+    let nH = nW / AR;
+    if (nH > vh)      { nH = vh;      nW = nH * AR; }
+    if (nH < vh*0.1)  { nH = vh*0.1;  nW = nH * AR; }
+
+    cropState.cW = nW;
+    cropState.cH = nH;
+
+    if (dir==='e'||dir==='ne'||dir==='se') cropState.cx = s.cx - s.cW/2 + nW/2;
+    if (dir==='w'||dir==='nw'||dir==='sw') cropState.cx = s.cx + s.cW/2 - nW/2;
+    if (dir==='s'||dir==='se'||dir==='sw') cropState.cy = s.cy - s.cH/2 + nH/2;
+    if (dir==='n'||dir==='ne'||dir==='nw') cropState.cy = s.cy + s.cH/2 - nH/2;
+
+    cropState.cx = Math.min(vx+vw-nW/2, Math.max(vx+nW/2, cropState.cx));
+    cropState.cy = Math.min(vy+vh-nH/2, Math.max(vy+nH/2, cropState.cy));
+  }
+  updateGuide();
+}
+
+function endDrag() {
+  if (!dragging) return;
+  dragging = null;
+  document.body.style.userSelect = '';
+  elCb.classList.remove('dragging');
+}
+
+// Mouse
+elCb.addEventListener('mousedown', e => {
+  if (!e.target.classList.contains('rh')) { e.preventDefault(); startDrag('move', e.clientX, e.clientY); }
+});
+document.querySelectorAll('.rh').forEach(h => {
+  h.addEventListener('mousedown', e => { e.preventDefault(); e.stopPropagation(); startDrag(h.dataset.dir, e.clientX, e.clientY); });
+});
+document.addEventListener('mousemove', e => { if (dragging) { e.preventDefault(); applyDrag(e.clientX, e.clientY); } });
+document.addEventListener('mouseup',   endDrag);
+
+// Touch (reuses same startDrag / applyDrag / endDrag)
+elCb.addEventListener('touchstart', e => {
+  if (!e.target.classList.contains('rh')) { e.preventDefault(); const t = e.touches[0]; startDrag('move', t.clientX, t.clientY); }
+}, { passive: false });
+document.querySelectorAll('.rh').forEach(h => {
+  h.addEventListener('touchstart', e => { e.preventDefault(); e.stopPropagation(); const t = e.touches[0]; startDrag(h.dataset.dir, t.clientX, t.clientY); }, { passive: false });
+});
+document.addEventListener('touchmove', e => { if (dragging) { e.preventDefault(); const t = e.touches[0]; applyDrag(t.clientX, t.clientY); } }, { passive: false });
+document.addEventListener('touchend',  endDrag);
+
+// ─────────────────────────────────────────────
+// Canvas frame rendering
+// Uses module-scope globals: fill, bgCol, elPv, vMeta
+// PAD mode: dX/dY/dW/dH = destination rect for the scaled video inside the output frame
+// CROP mode: sX/sY/sW/sH = source clip rect; draw to fill full canvas
+// ─────────────────────────────────────────────
+function drawFrame(ctx, oW, oH, sX, sY, sW, sH, dX, dY, dW, dH, blurCanvas, blurCtx) {
+  ctx.clearRect(0, 0, oW, oH);
+  if (fill === 'pad') {
+    if (bgCol === 'blur') {
+      // Stretch video to fill canvas as blurred background
+      blurCtx.drawImage(elPv, 0, 0, oW, oH);
+      ctx.filter = 'blur(18px) brightness(0.4)';
+      ctx.drawImage(blurCanvas, -20, -20, oW+40, oH+40);
+      ctx.filter = 'none';
+    } else {
+      ctx.fillStyle = bgCol;
+      ctx.fillRect(0, 0, oW, oH);
+    }
+    // Draw video scaled-to-fit, centered
+    ctx.drawImage(elPv, 0, 0, vMeta.w, vMeta.h, dX, dY, dW, dH);
+  } else {
+    ctx.drawImage(elPv, sX, sY, sW, sH, 0, 0, oW, oH);
+  }
+}
+
+// ─────────────────────────────────────────────
+// Export dimension calculation
+// Returns: oW/oH = canvas size, sX/sY/sW/sH = source clip (CROP),
+//          dX/dY/dW/dH = destination rect for video drawing (PAD)
+// ─────────────────────────────────────────────
+function calcExportDims() {
+  const tAR = sel.w / sel.h;
+  const vAR = vMeta.w / vMeta.h;
+  let oW, oH, sX = 0, sY = 0, sW, sH, dX = 0, dY = 0, dW, dH;
+
+  if (fill === 'crop') {
+    // ── CROP ────────────────────────────────
+    if (cropState) {
+      const { cx, cy, cW: dCW, cH: dCH, vx, vy, vw: dVW, vh: dVH } = cropState;
+      const scaleX = vMeta.w / dVW, scaleY = vMeta.h / dVH;
+      // Clamp sW/sH to video bounds FIRST so the sX/sY clamp range is always non-negative
+      // (float precision: cW = vh*tAR can slightly exceed vw, making scaleX*cW > vMeta.w)
+      sW = Math.min(Math.round(dCW * scaleX), vMeta.w);
+      sH = Math.min(Math.round(dCH * scaleY), vMeta.h);
+      sX = Math.max(0, Math.min(Math.round((cx - dCW/2 - vx) * scaleX), vMeta.w - sW));
+      sY = Math.max(0, Math.min(Math.round((cy - dCH/2 - vy) * scaleY), vMeta.h - sH));
+    } else {
+      oW = tAR > vAR ? vMeta.w                   : Math.round(vMeta.h * tAR);
+      oH = tAR > vAR ? Math.round(vMeta.w / tAR) : vMeta.h;
+      sX = Math.round((vMeta.w - oW) / 2);
+      sY = Math.round((vMeta.h - oH) / 2);
+      sW = oW; sH = oH;
+    }
+    // Make even (H.264) — keep sW/sH in sync so no accidental stretch
+    oW = sW % 2 === 0 ? sW : sW - 1;
+    oH = sH % 2 === 0 ? sH : sH - 1;
+    sW = oW; sH = oH;   // sync: source clip = output frame, 1:1 pixel mapping
+    dW = oW; dH = oH;   // unused in CROP but kept for consistent signature
+
+  } else {
+    // ── PAD ─────────────────────────────────
+    // Use max(vMeta.w, vMeta.h) as the larger output dimension
+    // so output resolution is natural (e.g. 1080p 16:9 → 1080×1920 for 9:16, not 1920×3413)
+    const maxDim = Math.max(vMeta.w, vMeta.h);
+    oW = tAR >= 1 ? maxDim              : Math.round(maxDim * tAR);
+    oH = tAR >= 1 ? Math.round(maxDim / tAR) : maxDim;
+    // Make even
+    oW = oW % 2 === 0 ? oW : oW - 1;
+    oH = oH % 2 === 0 ? oH : oH - 1;
+
+    // Scale video to fit-inside the output frame (letterbox / pillarbox)
+    const scale = Math.min(oW / vMeta.w, oH / vMeta.h);
+    dW = Math.round(vMeta.w * scale);
+    dH = Math.round(vMeta.h * scale);
+    dX = Math.round((oW - dW) / 2);
+    dY = Math.round((oH - dH) / 2);
+
+    sW = vMeta.w; sH = vMeta.h; // source = full video (unused in drawFrame PAD path)
+  }
+
+  return { oW, oH, sX, sY, sW, sH, dX, dY, dW, dH };
+}
+
+// ─────────────────────────────────────────────
+// Audio — shared singleton (MediaElementSource can only be created once per
+// element; creating it again on a different AudioContext throws InvalidStateError)
+// ─────────────────────────────────────────────
+let _audioCtx = null;
+let _audioSrc = null; // MediaElementSourceNode — created exactly once
+
+function ensureAudio() {
+  if (!_audioCtx || _audioCtx.state === 'closed') {
+    _audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: SAMPLE_RATE });
+    _audioSrc = _audioCtx.createMediaElementSource(elPv);
+    _audioSrc.connect(_audioCtx.destination); // always passthrough to speakers
+  }
+  if (_audioCtx.state === 'suspended') _audioCtx.resume();
+  return _audioCtx;
+}
+
+// Returns a fresh MediaStreamDestination for WebM recording
+function makeAudioDest() {
+  const audioCtx = ensureAudio();
+  const audioDest = audioCtx.createMediaStreamDestination();
+  _audioSrc.connect(audioDest);
+  return audioDest;
+}
+
+// Disconnects export-only nodes; keeps _audioSrc→destination alive
+function dropAudioDest(audioDest) {
+  try { _audioSrc.disconnect(audioDest); } catch (_) {}
+}
+
+// ─────────────────────────────────────────────
+// Export: MP4 via WebCodecs + mp4-muxer (with audio)
+// ─────────────────────────────────────────────
+async function exportMp4({ oW, oH, sX, sY, sW, sH, dX, dY, dW, dH, base, canvas, ctx, blurCanvas, blurCtx }) {
+  const { Muxer, ArrayBufferTarget } = Mp4Muxer;
+  const muxer = new Muxer({
+    target: new ArrayBufferTarget(),
+    video: { codec:'avc', width:oW, height:oH, frameRate:FPS },
+    audio: { codec:'aac', sampleRate:SAMPLE_RATE, numberOfChannels:CHANNELS },
+    fastStart: 'in-memory',
+  });
+
+  let encReject = null; // set once the Promise is running
+  const videoEnc = new VideoEncoder({
+    output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
+    error:  e => encReject && encReject(e),
+  });
+  videoEnc.configure({ codec:'avc1.42001f', width:oW, height:oH, bitrate:VIDEO_BITRATE, framerate:FPS, hardwareAcceleration:'prefer-hardware' });
+
+  const audioEnc = new AudioEncoder({
+    output: (chunk, meta) => muxer.addAudioChunk(chunk, meta),
+    error:  e => encReject && encReject(e),
+  });
+  audioEnc.configure({ codec:'mp4a.40.2', sampleRate:SAMPLE_RATE, numberOfChannels:CHANNELS, bitrate:128_000 });
+
+  const audioCtx  = ensureAudio();
+  const scriptNode = audioCtx.createScriptProcessor(4096, CHANNELS, CHANNELS);
+  let audioTs = 0;
+  scriptNode.onaudioprocess = e => {
+    if (elPv.paused || elPv.ended) return;
+    const n   = e.inputBuffer.length;
+    const buf = new Float32Array(n * CHANNELS);
+    for (let c = 0; c < CHANNELS; c++) buf.set(e.inputBuffer.getChannelData(c), c * n);
+    const ad = new AudioData({ format:'f32-planar', sampleRate:SAMPLE_RATE, numberOfFrames:n, numberOfChannels:CHANNELS, timestamp:audioTs, data:buf });
+    audioEnc.encode(ad);
+    ad.close();
+    audioTs += Math.round(n / SAMPLE_RATE * 1_000_000);
+  };
+  _audioSrc.connect(scriptNode);
+  scriptNode.connect(audioCtx.destination);
+
+  let frameIdx = 0, lastPct = 0;
+  try {
+    const duration = elPv.duration;
+    const frameDuration = 1 / FPS;
+
+    await new Promise((resolve, reject) => {
+      encReject = reject;
+      
+      async function processNextFrame() {
+        try {
+          if (elPv.currentTime >= duration - (frameDuration / 2)) {
+            resolve();
+            return;
+          }
+
+          // Request the next frame callback before seeking
+          elPv.requestVideoFrameCallback(async (now, metadata) => {
+            try {
+              drawFrame(ctx, oW, oH, sX, sY, sW, sH, dX, dY, dW, dH, blurCanvas, blurCtx);
+              const ts = Math.round(metadata.mediaTime * 1_000_000);
+              const vf = new VideoFrame(canvas, { timestamp: ts, duration: Math.round(1_000_000 / FPS) });
+              videoEnc.encode(vf, { keyFrame: frameIdx++ % (FPS * 2) === 0 });
+              vf.close();
+
+              const pct = Math.min(100, Math.round(metadata.mediaTime / duration * 100));
+              if (pct !== lastPct) {
+                lastPct = pct;
+                elPb.style.width = pct + '%';
+                elPt.textContent = `処理中... ${pct}%`;
+              }
+
+              // Move to next frame
+              elPv.currentTime = Math.min(duration, elPv.currentTime + frameDuration);
+            } catch (e) { reject(e); }
+          });
+
+          // If we are at the very beginning and haven't triggered a seeked event yet, 
+          // we might need to manually trigger the first frame or wait for the first rvfc.
+          // Since we seeking in the loop, wait for 'seeked' event.
+        } catch (e) { reject(e); }
+      }
+
+      elPv.addEventListener('seeked', processNextFrame, { signal: audioCtx.signal });
+      
+      // Kick off the first frame
+      elPv.currentTime = 0;
+    });
+
+    await videoEnc.flush();
+    await audioEnc.flush();
+    muxer.finalize();
+    finishExport(new Blob([muxer.target.buffer], { type:'video/mp4' }), base, 'mp4');
+
+  } finally {
+    // Always disconnect the script node; _audioSrc→destination stays connected
+    try { _audioSrc.disconnect(scriptNode); } catch (_) {}
+    scriptNode.disconnect();
+    // Close encoders (safe even if already closed)
+    try { if (videoEnc.state !== 'closed') videoEnc.close(); } catch (_) {}
+    try { if (audioEnc.state !== 'closed') audioEnc.close(); } catch (_) {}
+  }
+}
+
+// ─────────────────────────────────────────────
+// Export: WebM fallback via MediaRecorder (with audio)
+// ─────────────────────────────────────────────
+function exportWebM({ oW, oH, sX, sY, sW, sH, dX, dY, dW, dH, base, canvas, ctx, blurCanvas, blurCtx }) {
+  const mime = ['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm']
+    .find(m => MediaRecorder.isTypeSupported(m));
+
+  const audioDest = makeAudioDest();
+  const stream    = canvas.captureStream(FPS);
+  audioDest.stream.getAudioTracks().forEach(t => stream.addTrack(t));
+
+  const rec    = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: VIDEO_BITRATE });
+  const chunks = [];
+  rec.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+
+  let lastPct = 0;
+  function draw() {
+    if (elPv.ended || elPv.currentTime >= elPv.duration - 0.05) { rec.stop(); return; }
+    const pct = Math.round(elPv.currentTime / elPv.duration * 100);
+    if (pct !== lastPct) { lastPct = pct; elPb.style.width = pct + '%'; elPt.textContent = `処理中... ${pct}%`; }
+    drawFrame(ctx, oW, oH, sX, sY, sW, sH, dX, dY, dW, dH, blurCanvas, blurCtx);
+    requestAnimationFrame(draw);
+  }
+
+  rec.onstop = () => {
+    dropAudioDest(audioDest); // disconnect export-only route; passthrough stays alive
+    finishExport(new Blob(chunks, { type: mime }), base, 'webm');
+  };
+
+  elPv.play();
+  rec.start(100);
+  requestAnimationFrame(draw);
+}
+
+// ─────────────────────────────────────────────
+// Shared export finish (update UI, set download link)
+// ─────────────────────────────────────────────
+function finishExport(blob, base, ext) {
+  elPb.style.width = '100%';
+  elPt.textContent = '完了！';
+  elDlLink.href    = URL.createObjectURL(blob);
+  elDlLink.download = `${base}_${sel.label.replace(':','x')}.${ext}`;
+  elDlLink.classList.add('visible');
+  elExpBtn.disabled = false;
+  setStatus('on', `✓ エクスポート完了！ (${ext.toUpperCase()})`);
+  setTimeout(() => elPw.classList.remove('visible'), 2000);
+}
+
+// ─────────────────────────────────────────────
+// Export entry point
+// ─────────────────────────────────────────────
+elExpBtn.addEventListener('click', async () => {
+  if (!vFile) return;
+
+  elExpBtn.disabled = true;
+  elPw.classList.add('visible');
+  elDlLink.classList.remove('visible');
+  setStatus('on', 'エクスポート中...');
+
+  const dims = calcExportDims();
+  const base = vFile.name.replace(/\.[^.]+$/, '');
+
+  elCanvas.width  = dims.oW;
+  elCanvas.height = dims.oH;
+  const ctx = elCanvas.getContext('2d');
+
+  let blurCanvas = null, blurCtx = null;
+  if (fill === 'pad' && bgCol === 'blur') {
+    blurCanvas = document.createElement('canvas');
+    blurCanvas.width = dims.oW; blurCanvas.height = dims.oH;
+    blurCtx = blurCanvas.getContext('2d');
+  }
+
+  // Seek to beginning
+  elPv.currentTime = 0;
+  await new Promise(r => {
+    const t = setTimeout(r, 1500);
+    elPv.addEventListener('seeked', () => { clearTimeout(t); r(); }, { once: true });
+  });
+
+  const args = { ...dims, base, canvas: elCanvas, ctx, blurCanvas, blurCtx };
+
+  const useWebCodecs = typeof VideoEncoder !== 'undefined'
+                    && typeof AudioEncoder !== 'undefined'
+                    && typeof Mp4Muxer     !== 'undefined';
+  if (useWebCodecs) {
+    try {
+      await exportMp4(args);
+      return;
+    } catch (e) {
+      console.warn('WebCodecs MP4 failed, falling back to WebM:', e);
+      elPb.style.width = '0%';
+      elPt.textContent = 'WebM で再試行中...';
+      // Re-seek to beginning before WebM fallback (video may be mid-way after MP4 attempt)
+      elPv.currentTime = 0;
+      await new Promise(r => {
+        const t = setTimeout(r, 1500);
+        elPv.addEventListener('seeked', () => { clearTimeout(t); r(); }, { once: true });
+      });
+    }
+  }
+  exportWebM(args);
+});
+
+// ─────────────────────────────────────────────
+// Preview Modal state
+// ─────────────────────────────────────────────
+let prevCtx   = null;
+let prevBlurC = null, prevBlurX = null;
+let prevRAF   = null; // requestAnimationFrame id
+let prevDims  = null; // cached calcExportDims result
+
+// Play icon paths
+const ICON_PLAY  = 'M3.5 2.5l7 4-7 4V2.5Z';
+const ICON_PAUSE = 'M3 2.5h2.5v8H3V2.5Zm4.5 0H10v8H7.5V2.5Z';
+
+function openPreview() {
+  if (!vFile) return;
+  prevDims = calcExportDims();
+  const { oW, oH } = prevDims;
+
+  // Size canvas: fit inside wrap (max ~72vh tall, full modal width)
+  const maxW = Math.min(860, window.innerWidth - 40) - 2;
+  const maxH = Math.round(window.innerHeight * 0.72);
+  const scale = Math.min(maxW / oW, maxH / oH);
+  const dispW = Math.round(oW * scale);
+  const dispH = Math.round(oH * scale);
+
+  elPrevCanvas.width  = oW;
+  elPrevCanvas.height = oH;
+  elPrevCanvas.style.width  = dispW + 'px';
+  elPrevCanvas.style.height = dispH + 'px';
+  elPvmWrap.style.height = dispH + 'px';
+  prevCtx = elPrevCanvas.getContext('2d');
+
+  if (fill === 'pad' && bgCol === 'blur') {
+    prevBlurC = document.createElement('canvas');
+    prevBlurC.width = oW; prevBlurC.height = oH;
+    prevBlurX = prevBlurC.getContext('2d');
+  } else {
+    prevBlurC = null; prevBlurX = null;
+  }
+
+  elPvmSeek.max   = 1000;
+  elPvmSeek.value = elPv.duration > 0
+    ? Math.round(elPv.currentTime / elPv.duration * 1000) : 0;
+
+  updatePvmTime();
+  elModal.classList.add('open');
+  startPrevRAF();
+}
+
+function closePreview() {
+  elModal.classList.remove('open');
+  stopPrevRAF();
+  elPv.pause();
+  syncPvmPlayIcon();
+}
+
+function startPrevRAF() {
+  if (prevRAF) return;
+  function loop() {
+    if (!prevDims) { prevRAF = null; return; }
+    const { oW, oH, sX, sY, sW, sH, dX, dY, dW, dH } = prevDims;
+    drawFrame(prevCtx, oW, oH, sX, sY, sW, sH, dX, dY, dW, dH, prevBlurC, prevBlurX);
+    updatePvmSeek();
+    updatePvmTime();
+    prevRAF = requestAnimationFrame(loop);
+  }
+  prevRAF = requestAnimationFrame(loop);
+}
+
+function stopPrevRAF() {
+  if (prevRAF) { cancelAnimationFrame(prevRAF); prevRAF = null; }
+}
+
+function syncPvmPlayIcon() {
+  elPvmIcon.setAttribute('d', elPv.paused ? ICON_PLAY : ICON_PAUSE);
+}
+
+function updatePvmSeek() {
+  if (!elPv.duration || pvmSeeking) return;  // don't fight user while dragging
+  elPvmSeek.value = Math.round(elPv.currentTime / elPv.duration * 1000);
+}
+
+function updatePvmTime() {
+  elPvmTime.textContent = fmtDur(elPv.currentTime || 0) + ' / ' + fmtDur(elPv.duration || 0);
+}
+
+// When preview video ends, sync icon
+elPv.addEventListener('ended',  () => { syncPvmPlayIcon(); elPvmSeek.value = 1000; updatePvmTime(); });
+elPv.addEventListener('pause',  syncPvmPlayIcon);
+elPv.addEventListener('play',   syncPvmPlayIcon);
+
+elPrevBtn.addEventListener('click', openPreview);
+
+elPvmClose.addEventListener('click', closePreview);
+
+// Close on backdrop click
+elModal.addEventListener('click', e => { if (e.target === elModal) closePreview(); });
+
+// Keyboard: Esc to close, Space to play/pause
+document.addEventListener('keydown', e => {
+  if (!elModal.classList.contains('open')) return;
+  if (e.key === 'Escape') closePreview();
+  if (e.key === ' ') { e.preventDefault(); togglePvmPlay(); }
+});
+
+function togglePvmPlay() {
+  if (elPv.paused) {
+    elPv.play();
+    // Restart RAF if needed
+    if (!prevRAF) startPrevRAF();
+  } else {
+    elPv.pause();
+  }
+  syncPvmPlayIcon();
+}
+
+elPvmPlay.addEventListener('click', togglePvmPlay);
+
+// Seek bar interaction
+let pvmSeeking = false;
+elPvmSeek.addEventListener('mousedown', () => { pvmSeeking = true; });
+elPvmSeek.addEventListener('touchstart', () => { pvmSeeking = true; }, {passive:true});
+elPvmSeek.addEventListener('input', () => {
+  if (!elPv.duration) return;
+  elPv.currentTime = (elPvmSeek.value / 1000) * elPv.duration;
+  updatePvmTime();
+});
+elPvmSeek.addEventListener('change', () => { pvmSeeking = false; });
+
+// Recalc dims if settings change while modal is open
+function refreshPreviewDims() {
+  if (!elModal.classList.contains('open')) return;
+  prevDims = calcExportDims();
+  const { oW, oH } = prevDims;
+
+  // Update canvas intrinsic size
+  elPrevCanvas.width  = oW;
+  elPrevCanvas.height = oH;
+
+  // Recompute display size to fit modal (same logic as openPreview)
+  const maxW = Math.min(860, window.innerWidth - 40) - 2;
+  const maxH = Math.round(window.innerHeight * 0.72);
+  const scale = Math.min(maxW / oW, maxH / oH);
+  elPrevCanvas.style.width  = Math.round(oW * scale) + 'px';
+  elPrevCanvas.style.height = Math.round(oH * scale) + 'px';
+  elPvmWrap.style.height    = Math.round(oH * scale) + 'px';
+
+  // Update blur canvas if needed
+  if (fill === 'pad' && bgCol === 'blur') {
+    if (!prevBlurC) {
+      prevBlurC = document.createElement('canvas');
+      prevBlurX = prevBlurC.getContext('2d');
+    }
+    prevBlurC.width = oW; prevBlurC.height = oH;
+  } else {
+    prevBlurC = null; prevBlurX = null;
+  }
+}
+
+// ─────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────
+function setStatus(type, txt) {
+  elSd.className   = 'sd' + (type === 'on' ? ' on' : '');
+  elSt.textContent = txt;
+}
+function fmtSize(b) { return b < 1_048_576 ? (b/1024).toFixed(1)+'KB' : (b/1_048_576).toFixed(1)+'MB'; }
+function fmtDur(s)  { return `${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`; }
+</script>
+</body>
+</html>
